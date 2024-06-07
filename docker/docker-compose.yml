@@ -1,0 +1,56 @@
+version: '3'
+
+services:
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/backend.Dockerfile
+    container_name: backend
+    restart: unless-stopped
+    healthcheck:
+      test: curl --fail --silent http://localhost:8000/health
+    ports:
+      - 8000:8000
+    env_file:
+      - .env
+    volumes:
+      - ./firestore_credentials.json:/firestore_credentials.json:ro
+
+  zenioo:
+    build:
+      context: ..
+      dockerfile: docker/zenioo.Dockerfile
+    container_name: zenioo
+    restart: unless-stopped
+    healthcheck:
+      test: curl --fail --silent http://localhost:8002/health
+    ports:
+      - 8002:8002
+    env_file:
+      - .env
+
+  assurland:
+    build:
+      context: ..
+      dockerfile: docker/assurland.Dockerfile
+    container_name: assurland
+    restart: unless-stopped
+    healthcheck:
+      test: curl --fail --silent http://localhost:8003/health
+    ports:
+      - 8003:8003
+    env_file:
+      - .env
+    volumes:
+      - ./firestore_credentials.json:/firestore_credentials.json:ro
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: docker/frontend.Dockerfile
+    container_name: frontend
+    restart: unless-stopped
+    healthcheck:
+      test: curl --fail --silent http://localhost:80/
+    ports:
+      - 8004:80

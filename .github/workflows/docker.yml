@@ -1,0 +1,78 @@
+name: Docker deploy
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [backend, frontend, zenioo, assurland]
+    steps:
+      - name: Checkout 
+        uses: actions/checkout@v2
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+      - name: Set up Poetry
+        uses: snok/install-poetry@v1
+      - name: Substitute version numbers
+        id: version
+        run: |
+          poetry self add "poetry-dynamic-versioning[plugin]"
+          poetry dynamic-versioning
+          echo "version=$(poetry version --short)" >> $GITHUB_OUTPUT
+      - name: Create Sentry release
+        uses: getsentry/action-release@v1
+        with:
+          version: ${{ steps.version.outputs.version }}
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: techfin-${{ matrix.service }}
+      - name: Login to private registry
+        uses: docker/login-action@v1
+        with:
+          registry: ${{ secrets.REGISTRY_URL }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+      - name: Generate metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ secrets.REGISTRY_URL }}/${{ github.event.repository.name }}/${{ matrix.service }}            
+          tags: |
+            type=ref,event=branch
+            type=ref,event=tag
+            type=ref,event=pr
+            type=sha,prefix=
+            type=semver,pattern={{version}}
+      - name: Build and push images
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          file: ./docker/${{ matrix.service }}.Dockerfile
+          builder: ${{ steps.buildx.outputs.name }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: 'type=registry,ref=${{ secrets.REGISTRY_URL }}/${{ github.event.repository.name }}/${{ matrix.service }}:buildcache'
+          cache-to: 'type=registry,ref=${{ secrets.REGISTRY_URL }}/${{ github.event.repository.name }}/${{ matrix.service }}:buildcache,mode=max'
+
+  update:
+    runs-on: ubuntu-latest
+    needs: deploy
+    steps:
+      - name: Trigger remote deployment upgrade
+        uses: fjogeleit/http-request-action@v1
+        with:
+          url: ${{ secrets.UPDATER_URL }}
+          method: 'POST'
+          bearerToken: ${{ secrets.UPDATER_TOKEN }}
+          # 10 minutes timeout: the server answers when the deployment is finished
+          timeout: 600000
+
